@@ -1,7 +1,7 @@
 # Lab Report: Troubleshooting Persistent Windows Audit Policy Reversion
 
 **Date:** 2025-10-12
-**Analyst:** [Your Name]
+**Analyst:** Nedheesh Hasija
 
 ---
 
