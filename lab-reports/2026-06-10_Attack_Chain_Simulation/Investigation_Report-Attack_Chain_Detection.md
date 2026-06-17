@@ -93,3 +93,70 @@ Many legitimate system processes access LSASS. The GrantedAccess value tells you
 
 The CallTrace showing dbgcore.dll or dbghelp.dll indicates a memory-dumping operation was used. Legitimate services rarely involve debug DLLs when touching LSASS.
 
+## Detection Development
+
+### ATT&CK T1059.001 - Suspicious Powershell Execution
+
+Rule name: Suspicious Powershell Execution
+MITRE ATT&CK Technique: T1059.001
+SPL Query: 
+
+```spl
+index=* sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1 Image="*\\powershell.exe" (CommandLine="*-enc*" OR CommandLine="*-nop*" OR CommandLine="*IEX*" OR CommandLine="*DownloadString*" OR CommandLine="*Invoke-*")
+| stats count min(_time) as firstTime max(_time) as lastTime by Image CommandLine ParentImage User Computer
+| eval firstTime=strftime(firstTime,"%Y-%m-%d %H:%M:%S")
+| eval lastTime=strftime(lastTime,"%Y-%m-%d %H:%M:%S")
+| sort -lastTime
+```
+
+Detection Logic Rationale: ```EventCode=1``` indicates process creation with the Image parameter identifying the binary/executable that was used in the process. I added inclusions to this command such as -enc. This rule fires only when PowerShell is launched with flags commonly associated with malicious activity. It looks for encoded commands (-enc), no-profile execution (-nop), in-memory execution (IEX), download cradles (DownloadString), and invoke patterns (Invoke-).
+
+The stats command groups results by key fields so I can see each unique combination of command line, parent process, and user. The eval strftime lines convert timestamps into human-readable format for analysts.
+
+Known False Positives: Legitimate admin scripts and configuration management tools like SCCM may trigger detections. 
+Recommended Response: Investigate ParentImage and correlate with change management records. 
+
+### ATT&CK T1053.005 - Scheduled Task Creation
+
+Rule Name: Scheduled Task Creation
+MITRE ATT&CK Technique: T1053.005
+SPL Query:
+
+```
+index=* sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1 Image="*\\schtasks.exe" CommandLine="*/Create*"
+| stats count min(_time) as firstTime max(_time) as lastTime by Image CommandLine ParentImage User Computer
+| eval firstTime=strftime(firstTime,"%Y-%m-%d %H:%M:%S")
+| eval lastTime=strftime(lastTime,"%Y-%m-%d %H:%M:%S")
+| sort -lastTime
+```
+
+
+
+Detection Logic Rationale: Same as before, ```EventCode=1``` indicates process creation with the executable in Image parameter. This rule fires whenever schtasks.exe runs with the /Create flag. Any new scheduled task created via the command line generates an alert. This gives your SOC team visibility into persistence attempts.
+
+The grouping by ParentImage is important because it reveals what process spawned the task creation. A scheduled task created by powershell.exe is far more suspicious than one created by a legitimate installer.
+
+Known False Positives: software installers and Windows Update routinely creates tasks. 
+Recommended Response: Investigate whether the parent process and task command are expected. 
+
+### ATT&CK T1003.001 - LSASS Credential Dumping
+
+Rule Name: 
+MITRE ATT&CK Technique:
+SPL Query:
+
+```
+index=* sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=10 TargetImage="*\\lsass.exe" GrantedAccess IN ("0x1038","0x1438","0x143a","0x1fffff") CallTrace IN ("*dbgcore.dll*","*dbghelp.dll*","*ntdll.dll*","*kernelbase.dll*")
+NOT SourceImage IN ("*\\svchost.exe","*\\csrss.exe","*\\wininit.exe","*\\lsass.exe")
+| stats count min(_time) as firstTime max(_time) as lastTime by SourceImage TargetImage GrantedAccess CallTrace User Computer
+| eval firstTime=strftime(firstTime,"%Y-%m-%d %H:%M:%S")
+| eval lastTime=strftime(lastTime,"%Y-%m-%d %H:%M:%S")
+| sort -lastTime
+```
+
+Detection Rationale: This rule will rely upon ```EventCode=10``` which signifies Process Access, triggering whenever a process opens another process. This rule layers multiple detection signals together. The GrantedAccess values (0x1038, 0x1438, 0x143a, 0x1fffff) represent memory access permissions that credential dumping tools request.
+
+The CallTrace filter checks for DLLs involved in memory dumping operations (dbgcore.dll, dbghelp.dll). The NOT SourceImage clause excludes known legitimate system processes like svchost.exe and csrss.exe that routinely access LSASS for normal operations.
+
+Known False Positives: Antivirus and security scanning tools may access LSASS.
+Recommended Response: Correlate SourceImage with your approved security tooling list.
