@@ -20,7 +20,7 @@ Ubuntu VM running Splunk, Windows VM with Sysmon and Atomic Red Team installed, 
 
 ### T1003.001 - Dump LSASS.exe Memory using comsvcs.dll
 - Command: Invoke-AtomicTest T1003.001 -TestNumbers 2
-- Timestamp: 18:
+- Timestamp: 18:10
 - ATT&CK Technique: T1003.001
 - Cleanup: Invoke-AtomicTest T1003.001 -TestNumbers 2 -Cleanup
 
@@ -28,9 +28,9 @@ Ubuntu VM running Splunk, Windows VM with Sysmon and Atomic Red Team installed, 
 
 ### ATT&CK T1059.001 - Suspicious Powershell Execution
 
-Rule name: Suspicious Powershell Execution
-MITRE ATT&CK Technique: T1059.001
-SPL Query: 
+**Rule Name**: Suspicious Powershell Execution
+**MITRE ATT&CK Technique**: T1059.001
+**SPL Query**: 
 
 ```spl
 index=* sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1 Image="*\\powershell.exe" (CommandLine="*-enc*" OR CommandLine="*-nop*" OR CommandLine="*IEX*" OR CommandLine="*DownloadString*" OR CommandLine="*Invoke-*")
@@ -40,18 +40,18 @@ index=* sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCo
 | sort -lastTime
 ```
 
-Detection Logic Rationale: ```EventCode=1``` indicates process creation with the Image parameter identifying the binary/executable that was used in the process. I added inclusions to this command such as -enc. This rule fires only when PowerShell is launched with flags commonly associated with malicious activity. It looks for encoded commands (-enc), no-profile execution (-nop), in-memory execution (IEX), download cradles (DownloadString), and invoke patterns (Invoke-).
+**Detection Logic Rationale**: ```EventCode=1``` indicates process creation with the Image parameter identifying the binary/executable that was used in the process. I added inclusions to this command such as -enc. This rule fires only when PowerShell is launched with flags commonly associated with malicious activity. It looks for encoded commands (-enc), no-profile execution (-nop), in-memory execution (IEX), download cradles (DownloadString), and invoke patterns (Invoke-).
 
 The stats command groups results by key fields so I can see each unique combination of command line, parent process, and user. The eval strftime lines convert timestamps into human-readable format for analysts.
 
-Known False Positives: Legitimate admin scripts and configuration management tools like SCCM may trigger detections. 
-Recommended Response: Investigate ParentImage and correlate with change management records. 
+**Known False Positives**: Legitimate admin scripts and configuration management tools like SCCM may trigger detections. 
+**Recommended Response**: Investigate ParentImage and correlate with change management records. 
 
 ### ATT&CK T1053.005 - Scheduled Task Creation
 
-Rule Name: Scheduled Task Creation
-MITRE ATT&CK Technique: T1053.005
-SPL Query:
+**Rule Name**: Scheduled Task Creation
+**MITRE ATT&CK Technique**: T1053.005
+**SPL Query**:
 
 ```
 index=* sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1 Image="*\\schtasks.exe" CommandLine="*/Create*"
@@ -63,18 +63,18 @@ index=* sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCo
 
 
 
-Detection Logic Rationale: Same as before, ```EventCode=1``` indicates process creation with the executable in Image parameter. This rule fires whenever schtasks.exe runs with the /Create flag. Any new scheduled task created via the command line generates an alert. This gives your SOC team visibility into persistence attempts.
+**Detection Logic Rationale**: Same as before, ```EventCode=1``` indicates process creation with the executable in Image parameter. This rule fires whenever schtasks.exe runs with the /Create flag. Any new scheduled task created via the command line generates an alert. This gives your SOC team visibility into persistence attempts.
 
 The grouping by ParentImage is important because it reveals what process spawned the task creation. A scheduled task created by powershell.exe is far more suspicious than one created by a legitimate installer.
 
-Known False Positives: software installers and Windows Update routinely creates tasks. 
-Recommended Response: Investigate whether the parent process and task command are expected. 
+**Known False Positives**: software installers and Windows Update routinely creates tasks. 
+**Recommended Response**: Investigate whether the parent process and task command are expected. 
 
 ### ATT&CK T1003.001 - LSASS Credential Dumping
 
-Rule Name: 
-MITRE ATT&CK Technique:
-SPL Query:
+**Rule Name**: LSASS Credential Dumping
+**MITRE ATT&CK Technique**: T1003.001
+**SPL Query**:
 
 ```
 index=* sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=10 TargetImage="*\\lsass.exe" GrantedAccess IN ("0x1038","0x1438","0x143a","0x1fffff") CallTrace IN ("*dbgcore.dll*","*dbghelp.dll*","*ntdll.dll*","*kernelbase.dll*")
@@ -85,12 +85,12 @@ NOT SourceImage IN ("*\\svchost.exe","*\\csrss.exe","*\\wininit.exe","*\\lsass.e
 | sort -lastTime
 ```
 
-Detection Rationale: This rule will rely upon ```EventCode=10``` which signifies Process Access, triggering whenever a process opens another process. This rule layers multiple detection signals together. The GrantedAccess values (0x1038, 0x1438, 0x143a, 0x1fffff) represent memory access permissions that credential dumping tools request.
+**Detection Rationale**: This rule will rely upon ```EventCode=10``` which signifies Process Access, triggering whenever a process opens another process. This rule layers multiple detection signals together. The GrantedAccess values (0x1038, 0x1438, 0x143a, 0x1fffff) represent memory access permissions that credential dumping tools request.
 
 The CallTrace filter checks for DLLs involved in memory dumping operations (dbgcore.dll, dbghelp.dll). The NOT SourceImage clause excludes known legitimate system processes like svchost.exe and csrss.exe that routinely access LSASS for normal operations.
 
-Known False Positives: Antivirus and security scanning tools may access LSASS.
-Recommended Response: Correlate SourceImage with your approved security tooling list.
+**Known False Positives**: Antivirus and security scanning tools may access LSASS.
+**Recommended Response**: Correlate SourceImage with your approved security tooling list.
 
 ## Findings and Analysis
 ### Hunt for PowerShell execution evidence
@@ -161,3 +161,9 @@ The CallTrace showing dbgcore.dll or dbghelp.dll indicates a memory-dumping oper
 | T1059.001 | 1 | Image, CommandLine, ParentImage | -enc, -nop, IEX, DownloadString, Invoke- | Obfuscation, renamed binary |
 | T1053.005 | 1 | Image, CommandLine | schtasks.exe /Create | COM-based task creation, WMI |
 | T1003.001 | 10 | TargetImage, GrantedAccess, CallTrace | 0x1038/0x1438/0x1fffff, dbgcore.dll/dbghelp.dll | Different access masks, direct syscalls |
+
+## Sigma Rule Notes
+
+- Portability: A single Sigma rule can be converted to SPL, KQL, Lucene, and other query languages. If your organisation migrates SIEMs, detection logic does not need to be rewritten.
+- Sharing: The SigmaHQ repository contains thousands of community-contributed rules. Teams can import vetted detections instead of writing every rule from scratch.
+- Automation: CI/CD pipelines can automatically convert Sigma rules and deploy them to multiple SIEMs simultaneously, keeping detection coverage consistent across environments.
